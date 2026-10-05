@@ -1,6 +1,7 @@
 #python
 import os
 from datetime import datetime, timedelta
+from pathlib import Path
 #terceros
 from dateutil.relativedelta import relativedelta
 from sqlalchemy import event
@@ -27,7 +28,11 @@ from sqlalchemy import (
 #locales
 
 #conxion a la base de datos
-engine = create_engine("sqlite:///storage/data/gestion_pagos.db", echo=False)
+# En app empaquetada FLET_APP_STORAGE_DATA es persistente entre actualizaciones.
+# En dev, si no existe, se usa la carpeta local storage/data.
+_DIR_DATOS = Path(os.environ.get("FLET_APP_STORAGE_DATA") or (Path.cwd() / "storage" / "data"))
+_DIR_DATOS.mkdir(parents=True, exist_ok=True)
+engine = create_engine(f"sqlite:///{(_DIR_DATOS / 'gestion_pagos.db').as_posix()}", echo=False)
 
 @event.listens_for(engine, "connect")
 def _set_sqlite_pragma(dbapi_connection, connection_record):
@@ -371,7 +376,7 @@ def _inicializar_db():
     create_all() ya tiene checkfirst=True por defecto:
     no recrea tablas existentes.
     """
-    os.makedirs("storage/data", exist_ok=True)
+    _DIR_DATOS.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(engine)
 
     with engine.connect() as conn:
