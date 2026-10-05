@@ -19,7 +19,7 @@ from database_orm import (
 )
 
 
-def crear_modal_detalles(nombre_miembro: str, page: ft.Page, session, miembro_id: int):
+def crear_modal_detalles(nombre_miembro: str, page: ft.Page, session, miembro_id: int, on_guardar=None):
     """
     Crea un AlertDialog con los detalles reales del miembro desde la BD.
     ---
@@ -28,6 +28,7 @@ def crear_modal_detalles(nombre_miembro: str, page: ft.Page, session, miembro_id
         page (ft.Page): Página de Flet.
         session (Session): Sesión activa de SQLAlchemy.
         miembro_id (int): ID del miembro en la BD.
+        on_guardar (callable, opcional): Callback al editar el vencimiento (refresca la UI).
     Salida:
         ft.AlertDialog: Modal de detalles del miembro.
     """
@@ -61,6 +62,16 @@ def crear_modal_detalles(nombre_miembro: str, page: ft.Page, session, miembro_id
     def cerrar_modal(e):
         modal_detalles.open = False
         page.update()
+
+    # --- Refrescar modal y lista principal tras editar el vencimiento ---
+    def refrescar():
+        if on_guardar:
+            on_guardar()
+        nuevo = crear_modal_detalles(
+            nombre_miembro, page, session, miembro_id, on_guardar=on_guardar
+        )
+        if nuevo:
+            page.show_dialog(nuevo)
 
     # --- Generar PDF ---
     async def _generar_pdf(e):
@@ -293,50 +304,118 @@ def crear_modal_detalles(nombre_miembro: str, page: ft.Page, session, miembro_id
         .all()
     )
 
-    tabla_cabecera = ft.Container(
-        content=ft.Row(
-            controls=[
-                ft.Text("Fecha", weight="bold", color=THEME_TEXT_PRIMARY, width=80, text_align="center"),
-                ft.Text("|", color=THEME_BORDER_COLOR),
-                ft.Text("Monto", weight="bold", color=THEME_TEXT_PRIMARY, width=70, text_align="center"),
-                ft.Text("|", color=THEME_BORDER_COLOR),
-                ft.Text("Meses", weight="bold", color=THEME_TEXT_PRIMARY, width=50, text_align="center"),
-            ],
-            alignment=ft.MainAxisAlignment.CENTER,
-        ),
-        border=ft.Border.only(bottom=ft.BorderSide(1, THEME_BORDER_COLOR)),
-        padding=ft.Padding.only(bottom=10),
-    )
+    # Vencimiento global actual del miembro (override o cálculo automático)
+    venc_actual = _fecha_vencimiento(miembro, session)
+    venc_texto = venc_actual.strftime('%d/%m/%Y') if venc_actual else "—"
 
-    filas_historial = []
-    for pago in pagos:
+    # --- Diálogo para editar la fecha de vencimiento global ---
+    def abrir_editor_vencimiento(e):
+        seleccion = {"valor": venc_actual}
+
+        date_picker = ft.DatePicker(
+            value=venc_actual,
+            first_date=datetime(2000, 1, 1),
+            last_date=datetime(2100, 12, 31),
+            help_text="Fecha de vencimiento",
+            confirm_text="Guardar",
+            cancel_text="Cancelar",
+        )
+
+        def _confirmar(ev):
+            if date_picker.value is not None:
+                seleccion["valor"] = date_picker.value
+
+        def _al_cerrar(ev):
+            # El picker ya se removió del stack; refrescamos tras cerrarse
+            valor = date_picker.value if date_picker.value is not None else seleccion["valor"]
+            if valor is None or valor == venc_actual:
+                return
+            miembro.fecha_vencimiento = valor
+            session.commit()
+            modal_detalles.open = False
+            page.update()
+            refrescar()
+
+        date_picker.on_change = _confirmar
+        date_picker.on_dismiss = _al_cerrar
+        page.show_dialog(date_picker)
+
+    def _crear_card_pago(pago):
         monto_texto = f"${pago.monto:.0f}" if pago.monto == int(pago.monto) else f"${pago.monto:.2f}"
-        fila = ft.Container(
+        meses = pago.meses_abonados
+        return ft.Container(
             content=ft.Row(
                 controls=[
-                    ft.Text(pago.fecha_pago.strftime('%d/%m/%Y'),
-                            color=THEME_TEXT_PRIMARY, width=80, text_align="center"),
-                    ft.Text("|", color=THEME_BORDER_COLOR),
-                    ft.Text(monto_texto, color=THEME_TEXT_PRIMARY, width=70, text_align="center"),
-                    ft.Text("|", color=THEME_BORDER_COLOR),
-                    ft.Text(f"{pago.meses_abonados} {'mes' if pago.meses_abonados == 1 else 'meses'}",
-                            color=THEME_TEXT_PRIMARY, width=50, text_align="center"),
+                    ft.Column(
+                        controls=[
+                            ft.Row(
+                                controls=[
+                                    ft.Icon(ft.Icons.CALENDAR_MONTH, size=15, color=THEME_TEAL),
+                                    ft.Text(pago.fecha_pago.strftime('%d/%m/%Y'),
+                                            color=THEME_TEXT_PRIMARY, size=14, weight="bold"),
+                                ],
+                                spacing=6,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                            ft.Text(f"Monto: {monto_texto}",
+                                    color=THEME_TEXT_SECONDARY, size=13),
+                            ft.Text(f"Meses abonados: {meses} {'mes' if meses == 1 else 'meses'}",
+                                    color=THEME_TEXT_SECONDARY, size=13),
+                            ft.Text(f"Vencimiento: {venc_texto}",
+                                    color=THEME_TEXT_SECONDARY, size=13),
+                        ],
+                        spacing=3,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        expand=True,
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.EDIT,
+                        icon_color=THEME_TEAL,
+                        icon_size=18,
+                        tooltip="Editar fecha de vencimiento",
+                        mouse_cursor=ft.MouseCursor.CLICK,
+                        on_click=abrir_editor_vencimiento,
+                    ),
                 ],
-                alignment=ft.MainAxisAlignment.CENTER,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            border=ft.Border.only(bottom=ft.BorderSide(1, THEME_BORDER_COLOR)),
-            padding=ft.Padding.symmetric(vertical=10),
+            bgcolor=THEME_BG,
+            border=ft.Border.all(1, THEME_BORDER_COLOR),
+            border_radius=8,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            margin=ft.Margin.only(bottom=8),
         )
-        filas_historial.append(fila)
 
-    # Si no hay pagos, mostrar mensaje en lugar de tabla vacía
-    if not filas_historial:
-        filas_historial.append(
+    cards_historial = [_crear_card_pago(pago) for pago in pagos]
+
+    # Si no hay pagos, mostrar mensaje pero permitir editar el vencimiento
+    if not cards_historial:
+        cards_historial.append(
             ft.Container(
-                content=ft.Text("Sin historial de pagos",
-                                color=THEME_TEXT_SECONDARY, size=14, italic=True),
-                padding=ft.Padding.symmetric(vertical=20),
-                alignment=ft.Alignment.CENTER,
+                content=ft.Row(
+                    controls=[
+                        ft.Column(
+                            controls=[
+                                ft.Text("Sin historial de pagos",
+                                        color=THEME_TEXT_SECONDARY, size=14, italic=True),
+                                ft.Text(f"Vencimiento: {venc_texto}",
+                                        color=THEME_TEXT_SECONDARY, size=13),
+                            ],
+                            spacing=3,
+                            expand=True,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.EDIT,
+                            icon_color=THEME_TEAL,
+                            icon_size=18,
+                            tooltip="Editar fecha de vencimiento",
+                            mouse_cursor=ft.MouseCursor.CLICK,
+                            on_click=abrir_editor_vencimiento,
+                        ),
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                padding=ft.Padding.symmetric(vertical=10),
             )
         )
 
@@ -345,8 +424,7 @@ def crear_modal_detalles(nombre_miembro: str, page: ft.Page, session, miembro_id
             controls=[
                 ft.Text("Historial de Pagos", size=18, color=THEME_TEXT_PRIMARY),
                 ft.Container(height=5),
-                tabla_cabecera,
-                ft.Column(controls=filas_historial, scroll=ft.ScrollMode.AUTO, spacing=0),
+                ft.Column(controls=cards_historial, scroll=ft.ScrollMode.AUTO, spacing=0),
                 ft.Container(expand=True),
                 ft.Row(controls=[ft.Container(expand=True), pdf_btn, cancelar_btn]),
             ],
@@ -369,8 +447,7 @@ def crear_modal_detalles(nombre_miembro: str, page: ft.Page, session, miembro_id
             controls=[
                 ft.Text("Historial de Pagos", size=18, color=THEME_TEXT_PRIMARY),
                 ft.Container(height=5),
-                tabla_cabecera,
-                ft.Column(controls=filas_historial, scroll=ft.ScrollMode.AUTO, expand=True, spacing=0),
+                ft.Column(controls=cards_historial, scroll=ft.ScrollMode.AUTO, expand=True, spacing=0),
                 ft.Row(controls=[ft.Container(expand=True), pdf_btn, cancelar_btn]),
             ],
             spacing=8,

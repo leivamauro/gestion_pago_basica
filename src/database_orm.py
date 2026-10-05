@@ -148,6 +148,10 @@ def _fecha_vencimiento(miembro: Miembro, session: Session) -> datetime:
     Salida:
         datetime: Fecha de vencimiento calculada.
     """
+    # Override manual: si se fijó una fecha de vencimiento, tiene prioridad
+    if miembro.fecha_vencimiento is not None:
+        return miembro.fecha_vencimiento
+
     inicio = _inicio_ciclo_pago(miembro)
     ahora = datetime.now()
 
@@ -188,9 +192,10 @@ def _calcular_vencimiento(miembro: Miembro, session: Session) -> int:
     """
     ahora = datetime.now()
 
-    # Si está en prueba, no está vencido
+    # Si está en prueba (y no hay override manual), no está vencido
     inicio = _inicio_ciclo_pago(miembro)
-    if miembro.es_prueba and miembro.tiempo_prueba_dias > 0 and ahora < inicio:
+    if (miembro.fecha_vencimiento is None and miembro.es_prueba
+            and miembro.tiempo_prueba_dias > 0 and ahora < inicio):
         return 0
 
     vencimiento = _fecha_vencimiento(miembro, session)
@@ -276,7 +281,8 @@ def _estado_semaforo(miembro: Miembro, session: Session) -> str:
     ahora = datetime.now()
     inicio = _inicio_ciclo_pago(miembro)
 
-    if miembro.es_prueba and miembro.tiempo_prueba_dias > 0 and ahora < inicio:
+    if (miembro.fecha_vencimiento is None and miembro.es_prueba
+            and miembro.tiempo_prueba_dias > 0 and ahora < inicio):
         return "en_prueba"
 
     tiene_pagos = (
@@ -285,7 +291,7 @@ def _estado_semaforo(miembro: Miembro, session: Session) -> str:
         .count()
     ) > 0
 
-    if not tiene_pagos or _esta_vencido(miembro, session):
+    if _esta_vencido(miembro, session) or (not tiene_pagos and miembro.fecha_vencimiento is None):
         return "vencido"
 
     return "al_dia"

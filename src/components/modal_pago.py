@@ -120,6 +120,9 @@ def crear_modal_pago(nombre_miembro: str, page: ft.Page, session, miembro_id: in
         # El pago se registra con la fecha real del día del pago
         fecha_pago = datetime.now()
 
+        # Un nuevo pago recalcula el vencimiento: descarta el override manual
+        miembro.fecha_vencimiento = None
+
         pago = HistorialPago(
             miembro_id=miembro_id,
             fecha_pago=fecha_pago,
