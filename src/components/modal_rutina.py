@@ -181,7 +181,6 @@ def crear_modal_rutina(nombre_miembro: str, page: ft.Page, session, miembro_id: 
         color=THEME_TEXT_PRIMARY,
         label_style=ft.TextStyle(color=THEME_TEXT_SECONDARY),
         cursor_color=THEME_TEAL,
-        max_length=200,
         multiline=True,
         min_lines=1,
         max_lines=3,

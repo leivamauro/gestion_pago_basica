@@ -310,8 +310,6 @@ def crear_modal_detalles(nombre_miembro: str, page: ft.Page, session, miembro_id
 
     # --- Diálogo para editar la fecha de vencimiento global ---
     def abrir_editor_vencimiento(e):
-        seleccion = {"valor": venc_actual}
-
         date_picker = ft.DatePicker(
             value=venc_actual,
             first_date=datetime(2000, 1, 1),
@@ -322,12 +320,8 @@ def crear_modal_detalles(nombre_miembro: str, page: ft.Page, session, miembro_id
         )
 
         def _confirmar(ev):
-            if date_picker.value is not None:
-                seleccion["valor"] = date_picker.value
-
-        def _al_cerrar(ev):
-            # El picker ya se removió del stack; refrescamos tras cerrarse
-            valor = date_picker.value if date_picker.value is not None else seleccion["valor"]
+            # on_change se dispara al pulsar "Guardar" con el valor ya actualizado
+            valor = date_picker.value
             if valor is None or valor == venc_actual:
                 return
             miembro.fecha_vencimiento = valor
@@ -337,7 +331,6 @@ def crear_modal_detalles(nombre_miembro: str, page: ft.Page, session, miembro_id
             refrescar()
 
         date_picker.on_change = _confirmar
-        date_picker.on_dismiss = _al_cerrar
         page.show_dialog(date_picker)
 
     def _crear_card_pago(pago):

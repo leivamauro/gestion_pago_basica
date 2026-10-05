@@ -21,6 +21,7 @@ from sqlalchemy import (
     Boolean,
     create_engine,
     text,
+    Text,
 
 )
 #locales
@@ -90,7 +91,7 @@ class Cronograma(Base):
     dia_semana = Column(Integer(), nullable=False)
     fecha = Column(DateTime(), nullable=True)
     semana = Column(Integer(), nullable=True)
-    descripcion = Column(String(200), nullable=True)
+    descripcion = Column(Text, nullable=True)
     repetir_semanal = Column(Boolean(), default=True)
 
     _miembro = relationship("Miembro", back_populates="cronogramas")
